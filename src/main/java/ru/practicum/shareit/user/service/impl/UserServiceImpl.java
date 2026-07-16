@@ -5,7 +5,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.practicum.shareit.exception.model.ConflictException;
 import ru.practicum.shareit.exception.model.NotFoundException;
-import ru.practicum.shareit.user.dto.UserDto;
+import ru.practicum.shareit.user.dto.CreateUserRequest;
+import ru.practicum.shareit.user.dto.UpdateUserRequest;
+import ru.practicum.shareit.user.dto.UserResponse;
 import ru.practicum.shareit.user.mapper.UserMapper;
 import ru.practicum.shareit.user.model.User;
 import ru.practicum.shareit.user.service.UserService;
@@ -19,45 +21,43 @@ public class UserServiceImpl implements UserService {
     private final UserStorage userStorage;
 
     @Override
-    public UserDto findById(long id) {
+    public UserResponse findById(long id) {
         return userStorage.findById(id)
-                .map(UserMapper::toDto)
+                .map(UserMapper::toResponse)
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
     @Override
-    public UserDto create(UserDto userDto) {
-        if (userDto.getEmail() != null) {
-            userStorage.findByEmail(userDto.getEmail())
+    public UserResponse create(CreateUserRequest request) {
+        if (request.getEmail() != null) {
+            userStorage.findByEmail(request.getEmail())
                     .ifPresent(user -> {
                         log.warn("User with email {} already exists", user.getEmail());
                         throw new ConflictException("Email already in use");
                     });
         }
-        User user = UserMapper.toEntity(userDto);
+        User user = UserMapper.toEntity(request);
         User created = userStorage.create(user);
-        return UserMapper.toDto(created);
+        return UserMapper.toResponse(created);
     }
 
     @Override
-    public UserDto update(UserDto userDto) {
-        User user = userStorage.findById(userDto.getId())
+    public UserResponse update(UpdateUserRequest request) {
+        User user = userStorage.findById(request.getId())
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
-        if (userDto.getName() != null) {
-            user.setName(userDto.getName());
-        }
-        if (userDto.getEmail() != null) {
-            userStorage.findByEmail(userDto.getEmail())
+        UserMapper.toEntity(request, user);
+
+        if (request.getEmail() != null) {
+            userStorage.findByEmail(request.getEmail())
                     .filter(existing -> existing.getId() != user.getId())
                     .ifPresent(existing -> {
                         throw new ConflictException("Email already in use");
                     });
-            user.setEmail(userDto.getEmail());
         }
 
         userStorage.update(user);
-        return UserMapper.toDto(user);
+        return UserMapper.toResponse(user);
     }
 
     @Override

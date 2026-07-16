@@ -7,8 +7,7 @@ import lombok.Data;
 
 @Data
 @Builder
-public class ItemDto {
-    private long id;
+public class CreateItemRequest {
     @NotBlank private String name;
     @NotBlank private String description;
     @NotNull private Boolean available;
