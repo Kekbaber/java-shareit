@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class InMemoryUserStorage implements UserStorage {
 
     private final Map<Long, User> users = new HashMap<>();
+    private final Map<String, User> emailIndex = new HashMap<>();
     private final AtomicLong nextId = new AtomicLong(1);
 
     @Override
@@ -22,26 +23,33 @@ public class InMemoryUserStorage implements UserStorage {
 
     @Override
     public Optional<User> findByEmail(String email) {
-        return users.values().stream()
-                .filter(user -> user.getEmail() != null && user.getEmail().equals(email))
-                .findFirst();
+        return Optional.ofNullable(emailIndex.get(email));
     }
 
     @Override
     public User create(User user) {
         user.setId(nextId.getAndIncrement());
         users.put(user.getId(), user);
+        emailIndex.put(user.getEmail(), user);
         return user;
     }
 
     @Override
     public User update(User user) {
+        User old = users.get(user.getId());
+        if (old != null && old.getEmail() != null) {
+            emailIndex.remove(old.getEmail());
+        }
         users.put(user.getId(), user);
+        emailIndex.put(user.getEmail(), user);
         return user;
     }
 
     @Override
     public void delete(long id) {
-        users.remove(id);
+        User user = users.remove(id);
+        if (user != null && user.getEmail() != null) {
+            emailIndex.remove(user.getEmail());
+        }
     }
 }

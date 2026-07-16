@@ -4,10 +4,7 @@ import org.springframework.stereotype.Repository;
 import ru.practicum.shareit.item.model.Item;
 import ru.practicum.shareit.item.storage.ItemStorage;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Repository
@@ -15,11 +12,13 @@ public class InMemoryItemStorage implements ItemStorage {
 
     private final Map<Long, Item> items = new HashMap<>();
     private final AtomicLong nextId = new AtomicLong(1);
+    private final Map<Long, Set<Long>> ownerItems = new HashMap<>();
 
     @Override
     public Item create(Item item) {
         item.setId(nextId.getAndIncrement());
         items.put(item.getId(), item);
+        ownerItems.computeIfAbsent(item.getOwner().getId(), k -> new HashSet<>()).add(item.getId());
         return item;
     }
 
@@ -35,9 +34,8 @@ public class InMemoryItemStorage implements ItemStorage {
 
     @Override
     public List<Item> findAllOwnerItems(long ownerId) {
-        return items.values().stream()
-                .filter(item -> item.getOwner().getId() == ownerId)
-                .toList();
+        Set<Long> ids = ownerItems.getOrDefault(ownerId, Set.of());
+        return ids.stream().map(items::get).toList();
     }
 
     @Override
