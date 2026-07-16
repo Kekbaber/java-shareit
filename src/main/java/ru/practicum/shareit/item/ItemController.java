@@ -49,6 +49,9 @@ public class ItemController {
     @GetMapping("/search")
     public List<ItemDto> search(@RequestParam String text) {
         log.info("Поиск вещей: text='{}'", text);
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
         return itemService.search(text);
     }
 
