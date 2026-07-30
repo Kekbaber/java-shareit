@@ -61,7 +61,14 @@ public class BookingServiceImpl implements BookingService {
     @Override
     public BookingResponse approve(long bookingId, boolean approved, long userId) {
         Booking booking = bookingRepository.findByIdAndOwnerId(bookingId, userId)
-                .orElseThrow(() -> new NotFoundException("Booking not found"));
+                .orElse(null);
+
+        if (booking == null) {
+            bookingRepository.findById(bookingId)
+                    .orElseThrow(() -> new NotFoundException("Booking not found"));
+            throw new ForbiddenException("Only owner can approve/reject booking");
+        }
+
         if (booking.getStatus() != BookingStatus.WAITING) {
             throw new IllegalArgumentException("Booking is not in WAITING status");
         }
