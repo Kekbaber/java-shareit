@@ -3,13 +3,12 @@ package ru.practicum.shareit.item.mapper;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import ru.practicum.shareit.booking.model.Booking;
-import ru.practicum.shareit.item.dto.CommentResponse;
-import ru.practicum.shareit.item.dto.CreateItemRequest;
-import ru.practicum.shareit.item.dto.ItemResponse;
-import ru.practicum.shareit.item.dto.UpdateItemRequest;
+import ru.practicum.shareit.item.dto.*;
 import ru.practicum.shareit.item.model.Comment;
 import ru.practicum.shareit.item.model.Item;
+import ru.practicum.shareit.user.model.User;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -33,6 +32,15 @@ public class ItemMapper {
         if (request.getAvailable() != null) {
             item.setAvailable(request.getAvailable());
         }
+    }
+
+    public static Comment toEntity(CreateCommentRequest request, Item item, User author) {
+        return Comment.builder()
+                .text(request.getText())
+                .item(item)
+                .author(author)
+                .created(LocalDateTime.now())
+                .build();
     }
 
     public static ItemResponse toResponse(Item item) {

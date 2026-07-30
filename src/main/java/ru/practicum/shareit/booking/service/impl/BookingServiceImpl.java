@@ -46,15 +46,13 @@ public class BookingServiceImpl implements BookingService {
         if (item.getOwner().getId() == userId) {
             throw new IllegalArgumentException("Owner cannot book own item");
         }
+        boolean isOverlapping = bookingRepository.existsOverlappingBooking(
+                request.getItemId(), request.getStart(), request.getEnd());
+        if (isOverlapping) {
+            throw new IllegalArgumentException("Item is already booked for this time period");
+        }
 
-        Booking booking = Booking.builder()
-                .start(request.getStart())
-                .end(request.getEnd())
-                .item(item)
-                .booker(booker)
-                .status(BookingStatus.WAITING)
-                .build();
-
+        Booking booking = BookingMapper.toEntity(request, item, booker);
         Booking saved = bookingRepository.save(booking);
         log.info("Booking created: id={}, userId={}, itemId={}", saved.getId(), userId, request.getItemId());
         return BookingMapper.toResponse(saved);
@@ -62,12 +60,8 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public BookingResponse approve(long bookingId, boolean approved, long userId) {
-        Booking booking = bookingRepository.findById(bookingId)
+        Booking booking = bookingRepository.findByIdAndOwnerId(bookingId, userId)
                 .orElseThrow(() -> new NotFoundException("Booking not found"));
-
-        if (booking.getItem().getOwner().getId() != userId) {
-            throw new ForbiddenException("Only owner can approve/reject booking");
-        }
         if (booking.getStatus() != BookingStatus.WAITING) {
             throw new IllegalArgumentException("Booking is not in WAITING status");
         }
@@ -102,6 +96,19 @@ public class BookingServiceImpl implements BookingService {
                 .toList();
     }
 
+    @Override
+    public List<BookingResponse> findAllByOwner(String state, long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("User not found"));
+
+        List<Booking> all = bookingRepository.findByItemOwnerIdOrderByStartDesc(userId);
+        List<Booking> filtered = filterByState(all, state);
+
+        return filtered.stream()
+                .map(BookingMapper::toResponse)
+                .toList();
+    }
+
     private List<Booking> filterByState(List<Booking> bookings, String state) {
         LocalDateTime now = LocalDateTime.now();
         return switch (BookingState.valueOf(state)) {
@@ -122,18 +129,5 @@ public class BookingServiceImpl implements BookingService {
                     .filter(b -> b.getStatus() == BookingStatus.REJECTED)
                     .toList();
         };
-    }
-
-    @Override
-    public List<BookingResponse> findAllByOwner(String state, long userId) {
-        userRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found"));
-
-        List<Booking> all = bookingRepository.findByItemOwnerIdOrderByStartDesc(userId);
-        List<Booking> filtered = filterByState(all, state);
-
-        return filtered.stream()
-                .map(BookingMapper::toResponse)
-                .toList();
     }
 }

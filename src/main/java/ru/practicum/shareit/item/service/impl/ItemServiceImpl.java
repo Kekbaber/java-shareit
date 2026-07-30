@@ -18,6 +18,7 @@ import ru.practicum.shareit.user.model.User;
 import ru.practicum.shareit.user.storage.UserRepository;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -67,10 +68,9 @@ public class ItemServiceImpl implements ItemService {
         Booking last = null;
         Booking next = null;
         if (item.getOwner().getId() == userId) {
-            last = bookingRepository.findPastApprovedForItems(List.of(id)).stream()
-                    .findFirst().orElse(null);
-            next = bookingRepository.findFutureApprovedForItems(List.of(id)).stream()
-                    .findFirst().orElse(null);
+            List<Booking> allApproved = bookingRepository.findAllApprovedForItems(List.of(id));
+            last = findLastBooking(allApproved);
+            next = findNextBooking(allApproved);
         }
 
         return ItemMapper.toResponse(item, last, next, comments);
@@ -83,10 +83,20 @@ public class ItemServiceImpl implements ItemService {
 
         List<Long> itemIds = items.stream().map(Item::getId).toList();
 
-        Map<Long, Booking> lastBookings = bookingRepository.findPastApprovedForItems(itemIds).stream()
-                .collect(Collectors.toMap(b -> b.getItem().getId(), b -> b, (a, b) -> a));
-        Map<Long, Booking> nextBookings = bookingRepository.findFutureApprovedForItems(itemIds).stream()
-                .collect(Collectors.toMap(b -> b.getItem().getId(), b -> b, (a, b) -> a));
+        List<Booking> allApproved = bookingRepository.findAllApprovedForItems(itemIds);
+
+        Map<Long, Booking> lastBookings = new HashMap<>();
+        Map<Long, Booking> nextBookings = new HashMap<>();
+
+        Map<Long, List<Booking>> byItemId = allApproved.stream()
+                .collect(Collectors.groupingBy(b -> b.getItem().getId()));
+
+        byItemId.forEach((itemId, bookings) -> {
+            Booking last = findLastBooking(bookings);
+            Booking next = findNextBooking(bookings);
+            if (last != null) lastBookings.put(itemId, last);
+            if (next != null) nextBookings.put(itemId, next);
+        });
 
         Map<Long, List<CommentResponse>> commentsMap = commentRepository.findByItemIdIn(itemIds).stream()
                 .collect(Collectors.groupingBy(
@@ -123,14 +133,25 @@ public class ItemServiceImpl implements ItemService {
             throw new IllegalArgumentException("User has not booked this item");
         }
 
-        Comment comment = Comment.builder()
-                .text(request.getText())
-                .item(item)
-                .author(author)
-                .created(LocalDateTime.now())
-                .build();
+        Comment comment = ItemMapper.toEntity(request, item, author);
 
         Comment saved = commentRepository.save(comment);
         return ItemMapper.toCommentResponse(saved);
+    }
+
+    private Booking findLastBooking(List<Booking> bookings) {
+        LocalDateTime now = LocalDateTime.now();
+        return bookings.stream()
+                .filter(b -> !b.getStart().isAfter(now))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Booking findNextBooking(List<Booking> bookings) {
+        LocalDateTime now = LocalDateTime.now();
+        return bookings.stream()
+                .filter(b -> b.getStart().isAfter(now))
+                .reduce((first, second) -> second)
+                .orElse(null);
     }
 }
