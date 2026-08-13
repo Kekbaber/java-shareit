@@ -145,6 +145,114 @@ class BookingServiceImplTest {
                 .isInstanceOf(NotFoundException.class);
     }
 
+    @Test
+    void create_throwsWhenEndBeforeStart() {
+        User owner = saveUser("owner", "owner@test.ru");
+        User booker = saveUser("booker", "booker@test.ru");
+        Item item = saveItem(owner, true);
+        LocalDateTime now = LocalDateTime.now();
+
+        assertThatThrownBy(() -> bookingService.create(
+                bookingRequest(item.getId(), now.plusHours(2), now.plusHours(1)), booker.getId()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> bookingService.create(
+                bookingRequest(item.getId(), now.plusHours(1), now.plusHours(1)), booker.getId()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void create_throwsWhenOverlappingBookingExists() {
+        User owner = saveUser("owner", "owner@test.ru");
+        User booker = saveUser("booker", "booker@test.ru");
+        Item item = saveItem(owner, true);
+        LocalDateTime now = LocalDateTime.now();
+        BookingResponse existing = bookingService.create(
+                bookingRequest(item.getId(), now.plusHours(1), now.plusHours(3)), booker.getId());
+        bookingService.approve(existing.getId(), true, owner.getId());
+
+        assertThatThrownBy(() -> bookingService.create(
+                bookingRequest(item.getId(), now.plusHours(2), now.plusHours(4)), booker.getId()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void approve_byOwnerRejectsBooking() {
+        User owner = saveUser("owner", "owner@test.ru");
+        User booker = saveUser("booker", "booker@test.ru");
+        Item item = saveItem(owner, true);
+        BookingResponse created = bookingService.create(bookingRequest(item.getId(),
+                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)), booker.getId());
+
+        BookingResponse rejected = bookingService.approve(created.getId(), false, owner.getId());
+
+        assertThat(rejected.getStatus()).isEqualTo(BookingStatus.REJECTED);
+    }
+
+    @Test
+    void approve_throwsWhenNotWaiting() {
+        User owner = saveUser("owner", "owner@test.ru");
+        User booker = saveUser("booker", "booker@test.ru");
+        Item item = saveItem(owner, true);
+        BookingResponse created = bookingService.create(bookingRequest(item.getId(),
+                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)), booker.getId());
+        bookingService.approve(created.getId(), true, owner.getId());
+
+        assertThatThrownBy(() -> bookingService.approve(created.getId(), true, owner.getId()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void findById_returnsForOwnerAndBooker() {
+        User owner = saveUser("owner", "owner@test.ru");
+        User booker = saveUser("booker", "booker@test.ru");
+        Item item = saveItem(owner, true);
+        BookingResponse created = bookingService.create(bookingRequest(item.getId(),
+                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2)), booker.getId());
+
+        BookingResponse byOwner = bookingService.findById(created.getId(), owner.getId());
+        BookingResponse byBooker = bookingService.findById(created.getId(), booker.getId());
+
+        assertThat(byOwner.getId()).isEqualTo(created.getId());
+        assertThat(byBooker.getId()).isEqualTo(created.getId());
+    }
+
+    @Test
+    void findAllByBooker_filtersCurrentWaitingRejected() {
+        User owner = saveUser("owner", "owner@test.ru");
+        User booker = saveUser("booker", "booker@test.ru");
+        Item item = saveItem(owner, true);
+        LocalDateTime now = LocalDateTime.now();
+
+        BookingResponse current = bookingService.create(
+                bookingRequest(item.getId(), now.minusHours(2), now.plusHours(2)), booker.getId());
+        bookingService.approve(current.getId(), true, owner.getId());
+        BookingResponse waiting = bookingService.create(
+                bookingRequest(item.getId(), now.plusDays(1), now.plusDays(2)), booker.getId());
+        BookingResponse rejected = bookingService.create(
+                bookingRequest(item.getId(), now.plusDays(3), now.plusDays(4)), booker.getId());
+        bookingService.approve(rejected.getId(), false, owner.getId());
+
+        List<BookingResponse> currentBookings = bookingService.findAllByBooker("CURRENT", booker.getId());
+        List<BookingResponse> waitingBookings = bookingService.findAllByBooker("WAITING", booker.getId());
+        List<BookingResponse> rejectedBookings = bookingService.findAllByBooker("REJECTED", booker.getId());
+
+        assertThat(currentBookings).extracting(BookingResponse::getId).containsExactly(current.getId());
+        assertThat(waitingBookings).extracting(BookingResponse::getId).containsExactly(waiting.getId());
+        assertThat(rejectedBookings).extracting(BookingResponse::getId).containsExactly(rejected.getId());
+    }
+
+    @Test
+    void findAllByBooker_throwsWhenUserMissing() {
+        assertThatThrownBy(() -> bookingService.findAllByBooker("ALL", 999L))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void findAllByOwner_throwsWhenUserMissing() {
+        assertThatThrownBy(() -> bookingService.findAllByOwner("ALL", 999L))
+                .isInstanceOf(NotFoundException.class);
+    }
+
     private User saveUser(String name, String email) {
         return userRepository.save(User.builder().name(name).email(email).build());
     }

@@ -8,11 +8,13 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.practicum.shareit.booking.model.Booking;
 import ru.practicum.shareit.booking.model.BookingStatus;
 import ru.practicum.shareit.booking.storage.BookingRepository;
+import ru.practicum.shareit.exception.model.ForbiddenException;
 import ru.practicum.shareit.exception.model.NotFoundException;
 import ru.practicum.shareit.item.dto.CommentResponse;
 import ru.practicum.shareit.item.dto.CreateCommentRequest;
 import ru.practicum.shareit.item.dto.CreateItemRequest;
 import ru.practicum.shareit.item.dto.ItemResponse;
+import ru.practicum.shareit.item.dto.UpdateItemRequest;
 import ru.practicum.shareit.item.model.Comment;
 import ru.practicum.shareit.item.model.Item;
 import ru.practicum.shareit.item.service.ItemService;
@@ -169,5 +171,191 @@ class ItemServiceImplTest {
 
         assertThat(response.getText()).isEqualTo("great");
         assertThat(response.getAuthorName()).isEqualTo(booker.getName());
+    }
+
+    @Test
+    void update_changesOnlyProvidedFields() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+        Item item = itemRepository.save(Item.builder()
+                .name("Hammer")
+                .description("iron hammer")
+                .available(true)
+                .owner(owner)
+                .build());
+
+        UpdateItemRequest update = new UpdateItemRequest();
+        update.setName("Sledgehammer");
+        update.setAvailable(false);
+
+        ItemResponse response = itemService.update(item.getId(), update, owner.getId());
+
+        assertThat(response.getName()).isEqualTo("Sledgehammer");
+        assertThat(response.getAvailable()).isFalse();
+        assertThat(response.getDescription()).isEqualTo("iron hammer");
+        Item saved = itemRepository.findById(item.getId()).orElseThrow();
+        assertThat(saved.getName()).isEqualTo("Sledgehammer");
+        assertThat(saved.getAvailable()).isFalse();
+        assertThat(saved.getDescription()).isEqualTo("iron hammer");
+    }
+
+    @Test
+    void update_throwsWhenNotOwner() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+        User stranger = userRepository.save(User.builder().name("stranger").email("stranger@test.ru").build());
+        Item item = itemRepository.save(Item.builder()
+                .name("Hammer")
+                .description("iron hammer")
+                .available(true)
+                .owner(owner)
+                .build());
+
+        UpdateItemRequest update = new UpdateItemRequest();
+        update.setName("Sledgehammer");
+
+        assertThatThrownBy(() -> itemService.update(item.getId(), update, stranger.getId()))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void update_throwsWhenItemMissing() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+
+        UpdateItemRequest update = new UpdateItemRequest();
+        update.setName("Ghost");
+
+        assertThatThrownBy(() -> itemService.update(999L, update, owner.getId()))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void findById_returnsBookingsAndCommentsForOwner() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+        User booker = userRepository.save(User.builder().name("booker").email("booker@test.ru").build());
+        Item item = itemRepository.save(Item.builder()
+                .name("Hammer")
+                .description("iron hammer")
+                .available(true)
+                .owner(owner)
+                .build());
+        LocalDateTime now = LocalDateTime.now();
+        bookingRepository.save(Booking.builder()
+                .start(now.minusDays(2))
+                .end(now.minusDays(1))
+                .item(item)
+                .booker(booker)
+                .status(BookingStatus.APPROVED)
+                .build());
+        bookingRepository.save(Booking.builder()
+                .start(now.plusDays(1))
+                .end(now.plusDays(2))
+                .item(item)
+                .booker(booker)
+                .status(BookingStatus.APPROVED)
+                .build());
+        commentRepository.save(Comment.builder()
+                .text("good tool")
+                .item(item)
+                .author(booker)
+                .created(now.minusDays(1))
+                .build());
+
+        ItemResponse response = itemService.findById(item.getId(), owner.getId());
+
+        assertThat(response.getLastBooking()).isNotNull();
+        assertThat(response.getNextBooking()).isNotNull();
+        assertThat(response.getComments()).hasSize(1);
+    }
+
+    @Test
+    void findById_returnsNoBookingsForOtherUser() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+        User stranger = userRepository.save(User.builder().name("stranger").email("stranger@test.ru").build());
+        Item item = itemRepository.save(Item.builder()
+                .name("Hammer")
+                .description("iron hammer")
+                .available(true)
+                .owner(owner)
+                .build());
+
+        ItemResponse response = itemService.findById(item.getId(), stranger.getId());
+
+        assertThat(response.getLastBooking()).isNull();
+        assertThat(response.getNextBooking()).isNull();
+        assertThat(response.getComments()).isEmpty();
+    }
+
+    @Test
+    void findById_throwsWhenItemMissing() {
+        assertThatThrownBy(() -> itemService.findById(999L, 1L))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void search_returnsOnlyAvailableMatchingItems() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+        itemRepository.save(Item.builder()
+                .name("Drill")
+                .description("power drill")
+                .available(true)
+                .owner(owner)
+                .build());
+        itemRepository.save(Item.builder()
+                .name("Hammer")
+                .description("iron hammer")
+                .available(true)
+                .owner(owner)
+                .build());
+        itemRepository.save(Item.builder()
+                .name("BrokenDrill")
+                .description("drill out of order")
+                .available(false)
+                .owner(owner)
+                .build());
+
+        List<ItemResponse> byName = itemService.search("drill");
+        List<ItemResponse> byDescription = itemService.search("hammer");
+        List<ItemResponse> noMatch = itemService.search("nonexistent");
+
+        assertThat(byName).hasSize(1);
+        assertThat(byName.get(0).getName()).isEqualTo("Drill");
+        assertThat(byDescription).hasSize(1);
+        assertThat(noMatch).isEmpty();
+    }
+
+    @Test
+    void addComment_throwsWhenNoFinishedBooking() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+        User booker = userRepository.save(User.builder().name("booker").email("booker@test.ru").build());
+        Item item = itemRepository.save(Item.builder()
+                .name("Hammer")
+                .description("iron hammer")
+                .available(true)
+                .owner(owner)
+                .build());
+
+        CreateCommentRequest comment = new CreateCommentRequest();
+        comment.setText("great");
+
+        assertThatThrownBy(() -> itemService.addComment(item.getId(), comment, booker.getId()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void create_throwsWhenUserMissing() {
+        assertThatThrownBy(() -> itemService.create(CreateItemRequest.builder()
+                .name("Drill")
+                .description("power drill")
+                .available(true)
+                .build(), 999L))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void findAllOwnerItems_returnsEmptyWhenNoItems() {
+        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
+
+        List<ItemResponse> responses = itemService.findAllOwnerItems(owner.getId());
+
+        assertThat(responses).isEmpty();
     }
 }

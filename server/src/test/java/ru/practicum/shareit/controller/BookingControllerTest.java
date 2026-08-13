@@ -9,6 +9,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import ru.practicum.shareit.booking.BookingController;
 import ru.practicum.shareit.booking.dto.BookingResponse;
+import ru.practicum.shareit.exception.model.ForbiddenException;
+import ru.practicum.shareit.exception.model.NotFoundException;
 import ru.practicum.shareit.booking.dto.CreateBookingRequest;
 import ru.practicum.shareit.booking.model.BookingStatus;
 import ru.practicum.shareit.booking.service.BookingService;
@@ -93,6 +95,46 @@ class BookingControllerTest {
         mockMvc.perform(get("/bookings/owner").header("X-Sharer-User-Id", 5))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].item.name").value("Hammer"));
+    }
+
+    @Test
+    void getBooking_returns404_whenBookingMissing() throws Exception {
+        when(bookingService.findById(1L, 3L)).thenThrow(new NotFoundException("Booking not found"));
+
+        mockMvc.perform(get("/bookings/1").header("X-Sharer-User-Id", 3))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"));
+    }
+
+    @Test
+    void approve_returns403_whenNotOwner() throws Exception {
+        when(bookingService.approve(1L, true, 2L)).thenThrow(new ForbiddenException("Only owner can approve"));
+
+        mockMvc.perform(patch("/bookings/1")
+                        .header("X-Sharer-User-Id", 2)
+                        .param("approved", "true"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Forbidden"));
+    }
+
+    @Test
+    void create_returns400_whenAlreadyApproved() throws Exception {
+        when(bookingService.approve(1L, true, 2L)).thenThrow(new IllegalArgumentException("Booking already approved"));
+
+        mockMvc.perform(patch("/bookings/1")
+                        .header("X-Sharer-User-Id", 2)
+                        .param("approved", "true"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"));
+    }
+
+    @Test
+    void getBooking_returns500_onUnexpectedError() throws Exception {
+        when(bookingService.findById(1L, 3L)).thenThrow(new RuntimeException("boom"));
+
+        mockMvc.perform(get("/bookings/1").header("X-Sharer-User-Id", 3))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Internal Server Error"));
     }
 
     private BookingResponse bookingResponse() {

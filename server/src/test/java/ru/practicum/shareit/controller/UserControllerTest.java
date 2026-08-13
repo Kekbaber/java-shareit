@@ -7,6 +7,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import ru.practicum.shareit.exception.model.ConflictException;
+import ru.practicum.shareit.exception.model.NotFoundException;
 import ru.practicum.shareit.user.UserController;
 import ru.practicum.shareit.user.dto.CreateUserRequest;
 import ru.practicum.shareit.user.dto.UpdateUserRequest;
@@ -88,5 +90,34 @@ class UserControllerTest {
 
         mockMvc.perform(delete("/users/1"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void getUser_returns404_whenUserMissing() throws Exception {
+        when(userService.findById(1L)).thenThrow(new NotFoundException("User not found"));
+
+        mockMvc.perform(get("/users/1"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Not Found"));
+    }
+
+    @Test
+    void createUser_returns409_whenEmailInUse() throws Exception {
+        when(userService.create(any(CreateUserRequest.class))).thenThrow(new ConflictException("Email already in use"));
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Conflict"));
+    }
+
+    @Test
+    void getUser_returns500_onUnexpectedError() throws Exception {
+        when(userService.findById(1L)).thenThrow(new RuntimeException("boom"));
+
+        mockMvc.perform(get("/users/1"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Internal Server Error"));
     }
 }
