@@ -2,7 +2,6 @@ package ru.practicum.shareit.exception.handler;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -10,10 +9,6 @@ import ru.practicum.shareit.exception.dto.ErrorResponse;
 import ru.practicum.shareit.exception.model.ConflictException;
 import ru.practicum.shareit.exception.model.ForbiddenException;
 import ru.practicum.shareit.exception.model.NotFoundException;
-
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 @RestControllerAdvice
 @Slf4j
