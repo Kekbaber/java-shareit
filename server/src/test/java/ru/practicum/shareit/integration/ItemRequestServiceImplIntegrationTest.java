@@ -1,5 +1,8 @@
 package ru.practicum.shareit.integration;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -7,14 +10,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import ru.practicum.shareit.exception.model.NotFoundException;
 import ru.practicum.shareit.item.model.Item;
-import ru.practicum.shareit.item.storage.ItemRepository;
 import ru.practicum.shareit.request.ItemRequest;
 import ru.practicum.shareit.request.dto.CreateItemRequest;
 import ru.practicum.shareit.request.dto.ItemRequestResponse;
 import ru.practicum.shareit.request.service.ItemRequestService;
-import ru.practicum.shareit.request.storage.ItemRequestRepository;
 import ru.practicum.shareit.user.model.User;
-import ru.practicum.shareit.user.storage.UserRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,23 +25,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
-class ItemRequestServiceImplTest {
+class ItemRequestServiceImplIntegrationTest {
 
     @Autowired
     private ItemRequestService itemRequestService;
 
-    @Autowired
-    private UserRepository userRepository;
+    @PersistenceContext
+    private EntityManager entityManager;
 
-    @Autowired
-    private ItemRequestRepository itemRequestRepository;
+    private User requester;
+    private User owner;
 
-    @Autowired
-    private ItemRepository itemRepository;
+    @BeforeEach
+    void setUp() {
+        requester = saveUser("req", "req@test.ru");
+        owner = saveUser("owner", "owner@test.ru");
+    }
 
     @Test
     void create_savesRequestForExistingUser() {
-        User requester = userRepository.save(User.builder().name("req").email("req@test.ru").build());
         CreateItemRequest request = new CreateItemRequest();
         request.setDescription("Need a drill");
 
@@ -64,25 +66,9 @@ class ItemRequestServiceImplTest {
 
     @Test
     void getOwnRequests_returnsOwnRequestsNewestFirstWithItems() {
-        User requester = userRepository.save(User.builder().name("req").email("req@test.ru").build());
-        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
-        ItemRequest older = itemRequestRepository.save(ItemRequest.builder()
-                .description("older")
-                .requestor(requester)
-                .created(LocalDateTime.now().minusHours(2))
-                .build());
-        itemRequestRepository.save(ItemRequest.builder()
-                .description("newer")
-                .requestor(requester)
-                .created(LocalDateTime.now())
-                .build());
-        itemRepository.save(Item.builder()
-                .name("Drill")
-                .description("power drill")
-                .available(true)
-                .owner(owner)
-                .request(older)
-                .build());
+        ItemRequest older = saveRequest(requester, "older", LocalDateTime.now().minusHours(2));
+        saveRequest(requester, "newer", LocalDateTime.now());
+        saveItem(owner, older);
 
         List<ItemRequestResponse> responses = itemRequestService.getOwnRequests(requester.getId());
 
@@ -97,25 +83,11 @@ class ItemRequestServiceImplTest {
 
     @Test
     void getAllOtherRequests_returnsOnlyRequestsOfOthers() {
-        User me = userRepository.save(User.builder().name("me").email("me@test.ru").build());
-        User other = userRepository.save(User.builder().name("other").email("other@test.ru").build());
-        itemRequestRepository.save(ItemRequest.builder()
-                .description("mine")
-                .requestor(me)
-                .created(LocalDateTime.now().minusHours(1))
-                .build());
-        itemRequestRepository.save(ItemRequest.builder()
-                .description("older other")
-                .requestor(other)
-                .created(LocalDateTime.now().minusHours(3))
-                .build());
-        itemRequestRepository.save(ItemRequest.builder()
-                .description("newer other")
-                .requestor(other)
-                .created(LocalDateTime.now().minusHours(2))
-                .build());
+        saveRequest(requester, "mine", LocalDateTime.now().minusHours(1));
+        saveRequest(owner, "older other", LocalDateTime.now().minusHours(3));
+        saveRequest(owner, "newer other", LocalDateTime.now().minusHours(2));
 
-        List<ItemRequestResponse> responses = itemRequestService.getAllOtherRequests(me.getId());
+        List<ItemRequestResponse> responses = itemRequestService.getAllOtherRequests(requester.getId());
 
         assertThat(responses).hasSize(2);
         assertThat(responses.get(0).getDescription()).isEqualTo("newer other");
@@ -124,20 +96,8 @@ class ItemRequestServiceImplTest {
 
     @Test
     void getById_returnsRequestWithItems() {
-        User requester = userRepository.save(User.builder().name("req").email("req@test.ru").build());
-        User owner = userRepository.save(User.builder().name("owner").email("owner@test.ru").build());
-        ItemRequest request = itemRequestRepository.save(ItemRequest.builder()
-                .description("need drill")
-                .requestor(requester)
-                .created(LocalDateTime.now())
-                .build());
-        itemRepository.save(Item.builder()
-                .name("Drill")
-                .description("power drill")
-                .available(true)
-                .owner(owner)
-                .request(request)
-                .build());
+        ItemRequest request = saveRequest(requester, "need drill", LocalDateTime.now());
+        saveItem(owner, request);
 
         ItemRequestResponse response = itemRequestService.getById(request.getId());
 
@@ -150,5 +110,36 @@ class ItemRequestServiceImplTest {
     void getById_throwsWhenRequestMissing() {
         assertThatThrownBy(() -> itemRequestService.getById(999L))
                 .isInstanceOf(NotFoundException.class);
+    }
+
+    private User saveUser(String name, String email) {
+        User user = User.builder().name(name).email(email).build();
+        entityManager.persist(user);
+        entityManager.flush();
+        return user;
+    }
+
+    private ItemRequest saveRequest(User requestor, String description, LocalDateTime created) {
+        ItemRequest request = ItemRequest.builder()
+                .description(description)
+                .requestor(requestor)
+                .created(created)
+                .build();
+        entityManager.persist(request);
+        entityManager.flush();
+        return request;
+    }
+
+    private Item saveItem(User owner, ItemRequest request) {
+        Item item = Item.builder()
+                .name("Drill")
+                .description("power drill")
+                .available(true)
+                .owner(owner)
+                .request(request)
+                .build();
+        entityManager.persist(item);
+        entityManager.flush();
+        return item;
     }
 }
